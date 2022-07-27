@@ -169,6 +169,9 @@ class MqttSpbEntity:
         self.on_disconnect = None
         self.on_message = None
 
+        self._last_publish: Optional[mqtt.MQTTMessageInfo] = None # track last published message to ensure all are flushed before clean disconnect
+        self._last_published_mid: Optional[Any] = None
+
         # Private members -----------
 
         self._spb_group_name = spb_group_name
@@ -331,6 +334,10 @@ class MqttSpbEntity:
 
         return payload
 
+    def _publish(self, topic, payload, qos=0, retain=False):
+        self._last_publish = self._mqtt.publish(topic, payload, qos, retain)
+        return self._last_publish
+
     def publish_birth(self):
 
         if not self.is_connected():  # If not connected
@@ -346,7 +353,7 @@ class MqttSpbEntity:
         if self._entity_is_scada:
             topic = "spBv1.0/" + self.spb_group_name + "/STATE/" + self._spb_eon_name
             self._loopback_topic = topic
-            self._mqtt.publish(topic, "ONLINE".encode("utf-8"), 0, True)
+            self._publish(topic, "ONLINE".encode("utf-8"), 0, True)
             logger.info("%s - Published STATE BIRTH message " % (self._entity_domain))
             return
 
@@ -357,11 +364,33 @@ class MqttSpbEntity:
         else:
             topic = "spBv1.0/" + self.spb_group_name + "/DBIRTH/" + self._spb_eon_name + "/" + self._spb_eon_device_name
         self._loopback_topic = topic
-        self._mqtt.publish(topic, payload_bytes, 0, True)
+        self._publish(topic, payload_bytes, 0, True)
 
         logger.info("%s - Published BIRTH message" % (self._entity_domain))
 
         self.is_birth_published = True
+
+    def publish_death(self) -> bool:
+
+        if not self.is_connected():  # If not connected
+            logger.warning("%s - Could not send publish_death(), not connected to MQTT server" % self._entity_domain)
+            return False
+
+        # Entity DEATH message - last will message
+        if self._entity_is_scada:  # If it is a type entity SCADA, change the DEATH certificate
+            topic = "spBv1.0/" + self.spb_group_name + "/STATE/" + self._spb_eon_name
+            self._publish(topic, "OFFLINE".encode("utf-8"), 0, True)  # Set message
+        else:  # Normal node
+            payload = getNodeDeathPayload()
+            payload_bytes = bytearray(payload.SerializeToString())
+            if self._spb_eon_device_name is None:  # EoN
+                topic = "spBv1.0/" + self.spb_group_name + "/NDEATH/" + self._spb_eon_name
+            else:
+                topic = "spBv1.0/" + self.spb_group_name + "/DDEATH/" + self._spb_eon_name + "/" + self._spb_eon_device_name
+            self._publish(topic, payload_bytes, 0, True)  # Set message
+
+        return True
+
 
     def publish_data(self, send_all=False):
         """
@@ -391,7 +420,7 @@ class MqttSpbEntity:
             else:
                 topic = "spBv1.0/" + self.spb_group_name + "/DDATA/" + self._spb_eon_name + "/" + self._spb_eon_device_name
             self._loopback_topic = topic
-            self._mqtt.publish(topic, payload_bytes, 0, False)
+            self._publish(topic, payload_bytes)
 
             logger.info("%s - Published DATA message %s" % (self._entity_domain, topic))
             return True
@@ -412,6 +441,7 @@ class MqttSpbEntity:
         self._mqtt.on_connect = self._mqtt_on_connect
         self._mqtt.on_disconnect = self._mqtt_on_disconnect
         self._mqtt.on_message = self._mqtt_on_message
+        self._mqtt.on_publish = self._mqtt_on_publish
 
         if user != "":
             self._mqtt.username_pw_set(user, password)
@@ -453,6 +483,11 @@ class MqttSpbEntity:
         logger.info("%s - Disconnecting from MQTT server" % (self._entity_domain))
 
         if self._mqtt is not None:
+            self.publish_death()
+
+            if self._last_publish.mid != self._last_published_mid:
+                self._last_publish.wait_for_publish()
+
             self._mqtt.loop_stop()
             time.sleep(0.1)
             self._mqtt.disconnect()
@@ -577,6 +612,10 @@ class MqttSpbEntity:
                 # Execute the callback function if it is not None
                 if self.on_command is not None:
                     self.on_command(payload)
+
+    def _mqtt_on_publish(self, client, userdata, mid):
+        # track the last mid published so a clean disconnect can flush all published messages
+        self._last_published_mid = mid
 
     class _ValueItem:
         def __init__(self, name, value, timestamp=None):
@@ -751,7 +790,7 @@ class MqttSpbEntityEdgeNode(MqttSpbEntity):
         if payload.metrics:
             payload_bytes = bytearray(payload.SerializeToString())
             self._loopback_topic = topic
-            self._mqtt.publish(topic, payload_bytes, 0, False)
+            self._publish(topic, payload_bytes)
 
             logger.info("%s - Published COMMAND message to %s" % (self._entity_domain, topic))
 
@@ -830,7 +869,7 @@ class MqttSpbEntityScada(MqttSpbEntity):
         if payload.metrics:
             payload_bytes = bytearray(payload.SerializeToString())
             self._loopback_topic = topic
-            self._mqtt.publish(topic, payload_bytes, 0, False)
+            self._publish(topic, payload_bytes)
 
             logger.info("%s - Published COMMAND message to %s" % (self._entity_domain, topic))
 
@@ -864,7 +903,7 @@ class MqttSpbEntityScada(MqttSpbEntity):
         if payload.metrics:
             payload_bytes = bytearray(payload.SerializeToString())
             self._loopback_topic = topic
-            self._mqtt.publish(topic, payload_bytes, 0, False)
+            self._publish(topic, payload_bytes)
 
             logger.info("%s - Published COMMAND message to %s" % (self._entity_domain, topic))
 
