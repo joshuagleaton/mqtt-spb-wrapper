@@ -488,10 +488,8 @@ class MqttSpbEntity:
             if self._last_publish.mid != self._last_published_mid:
                 self._last_publish.wait_for_publish()
 
-            self._mqtt.loop_stop()
-            time.sleep(0.1)
             self._mqtt.disconnect()
-            time.sleep(0.1)
+            self._mqtt.loop_stop()
         self._mqtt = None
 
     def is_connected(self):
