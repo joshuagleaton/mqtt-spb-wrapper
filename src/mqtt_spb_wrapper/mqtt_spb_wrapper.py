@@ -149,7 +149,7 @@ class MqttSpbEntity:
         if debug_info:
             logger.setLevel(logging.DEBUG)
         else:
-            logger.setLevel(logging.ERROR)
+            logger.setLevel(logging.WARNING)
 
         # Public members -----------
 
