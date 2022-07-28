@@ -246,7 +246,7 @@ class MqttSpbEntity:
         elif isinstance(data, bool):
             return MetricDataType.Boolean
         elif isinstance(data, int):
-            return MetricDataType.Double
+            return MetricDataType.Int64
         elif isinstance(data, float):
             return MetricDataType.Double
         elif isinstance(data, bytes) or isinstance(data, bytearray):
