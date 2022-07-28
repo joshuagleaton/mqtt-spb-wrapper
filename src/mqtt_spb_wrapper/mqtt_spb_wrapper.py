@@ -179,9 +179,9 @@ class MqttSpbEntity:
         self._spb_eon_device_name = spb_eon_device_name
 
         if spb_eon_device_name is None:
-            self._entity_domain = "spBv.10.%s.%s" % (self._spb_group_name, self._spb_eon_name)
+            self._entity_domain = "spBv1.0.%s.%s" % (self._spb_group_name, self._spb_eon_name)
         else:
-            self._entity_domain = "spBv.10.%s.%s.%s" % (self._spb_group_name, self._spb_eon_name, self._spb_eon_device_name)
+            self._entity_domain = "spBv1.0.%s.%s.%s" % (self._spb_group_name, self._spb_eon_name, self._spb_eon_device_name)
 
         if spb_eon_device_name is None:
             self._entity_name = self._spb_eon_name
