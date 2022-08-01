@@ -18,9 +18,9 @@ from mqtt_spb_wrapper import *
 _DEBUG = True   # Enable debug messages
 
 # Sparkplug B parameters
-_config_spb_group_name = os.environ.get("SPB_GROUP", "GroupTest")
-_config_spb_eon_name = os.environ.get("SPB_EON", "Gateway-001")
-_config_spb_eon_device_name = os.environ.get("SPB_EON_DEVICE", "SimpleDev-01")
+_config_group_id = os.environ.get("SPB_GROUP", "GroupTest")
+_config_node_id = os.environ.get("SPB_EON", "Gateway-001")
+_config_device_id = os.environ.get("SPB_EON_DEVICE", "SimpleDev-01")
 
 # MQTT Configuration
 _config_mqtt_topic = "#"    # Topic to listen
@@ -64,9 +64,9 @@ def callback_message(topic, payload):
 print("--- Sparkplug B example - End of Node Device - Simple")
 
 # Create the spB entity object
-device = MqttSpbEntityDevice(_config_spb_group_name,
-                             _config_spb_eon_name,
-                             _config_spb_eon_device_name,
+device = MqttSpbEntityDevice(_config_group_id,
+                             _config_node_id,
+                             _config_device_id,
                              _DEBUG)
 
 # Configure callbacks

@@ -18,7 +18,7 @@ from mqtt_spb_wrapper import *
 _DEBUG = True   # Enable debug messages
 
 # Sparkplug B parameters
-_config_spb_group_name = os.environ.get("SPB_GROUP", "GroupTest")
+_config_group_id = os.environ.get("SPB_GROUP", "GroupTest")
 _config_spb_scada_name = os.environ.get("SPB_SCADA", "SCADA-001")
 
 # MQTT Configuration
@@ -53,9 +53,9 @@ def callback_scada_message(topic : MqttSpbTopic, payload):
 
         # Create entity if never discovered before
         if entity_name not in entities.keys():
-            entities[entity_name] = MqttSpbEntity(spb_group_name=topic.group_name,
-                                                  spb_eon_name=topic.eon_name,
-                                                  spb_eon_device_name=topic.eon_device_name,
+            entities[entity_name] = MqttSpbEntity(group_id=topic.group_name,
+                                                  node_id=topic.eon_name,
+                                                  device_id=topic.eon_device_name,
                                                   debug_info=_DEBUG)
 
         entity: MqttSpbEntity = entities[entity_name]    # Reference
@@ -103,7 +103,7 @@ def callback_scada_message(topic : MqttSpbTopic, payload):
 
 
 # Create the SCADA entity to listen to all spB messages
-scada = MqttSpbEntityScada(spb_group_name= _config_spb_group_name,
+scada = MqttSpbEntityScada(group_id= _config_group_id,
                            spb_scada_name= _config_spb_scada_name,
                            debug_info=_DEBUG)
 
@@ -145,8 +145,8 @@ while True:
             print("    Sending ping CMD")
 
             # If entity EoN Device
-            if entities[entity].spb_eon_device_name:
-                scada.publish_command_device( entities[entity].spb_eon_name, entities[entity].spb_eon_device_name, {"ping": True})
+            if entities[entity].device_id:
+                scada.publish_command_device( entities[entity].node_id, entities[entity].device_id, {"ping": True})
 
-            elif entities[entity].spb_eon_name:
-                scada.publish_command_edge_node( entities[entity].spb_eon_name, {"ping": True})
+            elif entities[entity].node_id:
+                scada.publish_command_edge_node( entities[entity].node_id, {"ping": True})
