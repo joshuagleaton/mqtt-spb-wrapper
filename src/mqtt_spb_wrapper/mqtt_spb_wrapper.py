@@ -316,7 +316,7 @@ class MqttSpbEntity:
         for item in self.data.values:
             # Only send those values that have been updated, or if send_all==True then send all.
             if send_all or item.is_updated:
-                addMetric(payload, item.name, None, self._spb_data_type(item.value), item.value)
+                addMetric(payload, 'DATA/' + item.name, None, self._spb_data_type(item.value), item.value)
 
         payload_bytes = bytearray(payload.SerializeToString())
 
