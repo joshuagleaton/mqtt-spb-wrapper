@@ -14,7 +14,7 @@ from .sparkplug_b_pb2 import Payload
 import time
 
 seqNum = 0
-bdSeq = 0
+#bdSeq = 0
 
 class DataSetDataType:
     Unknown = 0
@@ -92,22 +92,22 @@ class ParameterDataType:
 ######################################################################
 # Always request this before requesting the Node Birth Payload
 ######################################################################
-def getNodeDeathPayload():
+def getNodeDeathPayload(bdseq):
     payload = Payload()
-    addMetric(payload, "bdSeq", None, MetricDataType.Int64, getBdSeqNum())
+    addMetric(payload, "bdSeq", None, MetricDataType.Int64, bdseq)
     return payload
 ######################################################################
 
 ######################################################################
 # Always request this after requesting the Node Death Payload
 ######################################################################
-def getNodeBirthPayload():
+def getNodeBirthPayload(bdseq):
     global seqNum
     seqNum = 0
     payload = Payload()
     payload.timestamp = int(round(time.time() * 1000))
     payload.seq = getSeqNum()
-    addMetric(payload, "bdSeq", None, MetricDataType.Int64, --bdSeq)
+    addMetric(payload, "bdSeq", None, MetricDataType.Int64, bdseq)
     return payload
 ######################################################################
 
@@ -173,7 +173,7 @@ def initTemplateMetric(payload, name, alias, templateRef):
 # Helper method for adding metrics to a container which can be a
 # payload or a template
 ######################################################################
-def addMetric(container, name, alias, type, value):
+def addMetric(container, name, alias, type, value, props=None):
     metric = container.metrics.add()
     if name is not None:
         metric.name = name
@@ -239,6 +239,12 @@ def addMetric(container, name, alias, type, value):
         metric.template_value = value
     else:
         print( "Invalid: " + str(type))
+
+    if props is not None:
+        keys = props.keys()
+        metric.properties.keys.extend(keys)
+        for value in props.values():
+            metric.properties.values.add(type=MetricDataType.String, string_value=value)
 
     # Return the metric
     return metric
@@ -330,12 +336,12 @@ def getSeqNum():
 ######################################################################
 # Helper method for getting the next birth/death sequence number
 ######################################################################
-def getBdSeqNum():
-    global bdSeq
-    retVal = bdSeq
-    # print("bdSeqNum: " + str(retVal))
-    bdSeq += 1
-    if bdSeq == 256:
-        bdSeq = 0
-    return retVal
+# def getBdSeqNum():
+#     global bdSeq
+#     retVal = bdSeq
+#     # print("bdSeqNum: " + str(retVal))
+#     bdSeq += 1
+#     if bdSeq == 256:
+#         bdSeq = 0
+#     return retVal
 ######################################################################

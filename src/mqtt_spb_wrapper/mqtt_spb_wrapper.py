@@ -5,7 +5,7 @@ import paho.mqtt.client as mqtt
 from google.protobuf.json_format import MessageToDict
 
 from .spb_core import getDdataPayload, getNodeDeathPayload, getNodeBirthPayload, getDeviceBirthPayload
-from .spb_core import getSeqNum, getBdSeqNum
+from .spb_core import getSeqNum
 from .spb_core import addMetric, MetricDataType
 from .spb_core import Payload
 
@@ -158,7 +158,7 @@ class MqttSpbEntity:
         self.entity_subclass = None
 
         self.is_alive = True
-        self.is_birth_published = False
+        self.messages_published = 0
 
         self.attributes = self._ValuesGroup()
         self.data = self._ValuesGroup()
@@ -169,10 +169,13 @@ class MqttSpbEntity:
         self.on_disconnect = None
         self.on_message = None
 
+        self._bdseq = 0
+
         self._last_publish: Optional[mqtt.MQTTMessageInfo] = None # track last published message to ensure all are flushed before clean disconnect
         self._last_published_mid: Optional[Any] = None
 
         # Private members -----------
+
 
         self._spb_group_name = spb_group_name
         self._spb_eon_name = spb_eon_name
@@ -196,6 +199,11 @@ class MqttSpbEntity:
         self._entity_is_scada = entity_is_scada
 
         logger.info("%s - New entity created " % self._entity_domain)
+
+    @property
+    def is_node(self):
+        return self._spb_eon_device_name == None
+      
 
     def __str__(self):
         return str(self.get_dictionary())
@@ -260,27 +268,27 @@ class MqttSpbEntity:
         """
 
         if self._spb_eon_device_name is None:  # EoN type
-            payload = getNodeBirthPayload()
+            payload = getNodeBirthPayload(self._bdseq)
         else:  # Device
             payload = getDeviceBirthPayload()
 
             # Attributes
         if not self.attributes.is_empty():
             for item in self.attributes.values:
-                name = "ATTR/" + item.name
-                addMetric(payload, name, None, self._spb_data_type(item.value), item.value)
+                name = item.name
+                addMetric(payload, name, None, self._spb_data_type(item.value), item.value, props={"perm":"RO"})
 
             # Data
         if not self.data.is_empty():
             for item in self.data.values:
-                name = "DATA/" + item.name
-                addMetric(payload, name, None, self._spb_data_type(item.value), item.value)
+                name = item.name
+                addMetric(payload, name, None, self._spb_data_type(item.value), item.value, props={"perm":"RO"})
 
             # Commands
         if not self.commands.is_empty():
             for item in self.commands.values:
-                name = "CMD/" + item.name
-                addMetric(payload, name, None, self._spb_data_type(item.value), item.value)
+                name = item.name
+                addMetric(payload, name, None, self._spb_data_type(item.value), item.value, props={"perm":"RW"})
 
         payload_bytes = bytearray(payload.SerializeToString())
 
@@ -295,15 +303,15 @@ class MqttSpbEntity:
             # Iterate over the metrics to update the data fields
             for field in payload.get('metrics', []):
 
-                if field['name'].startswith("ATTR/"):
+                if field['name'].startswith("attr@"):
                     field['name'] = field['name'][5:]
                     self.attributes.set_value(field['name'], field['value'], field['timestamp'])  # update field
 
-                elif field['name'].startswith("CMD/"):
+                elif field['name'].startswith("cmd@"):
                     field['name'] = field['name'][4:]
                     self.commands.set_value(field['name'], field['value'], field['timestamp'])  # update field
 
-                elif field['name'].startswith("DATA/"):
+                elif field['name'].startswith("data@"):
                     field['name'] = field['name'][5:]
                     self.data.set_value(field['name'], field['value'], field['timestamp'])  # update field
 
@@ -316,7 +324,7 @@ class MqttSpbEntity:
         for item in self.data.values:
             # Only send those values that have been updated, or if send_all==True then send all.
             if send_all or item.is_updated:
-                addMetric(payload, 'DATA/' + item.name, None, self._spb_data_type(item.value), item.value)
+                addMetric(payload, item.name, None, self._spb_data_type(item.value), item.value)
 
         payload_bytes = bytearray(payload.SerializeToString())
 
@@ -336,6 +344,7 @@ class MqttSpbEntity:
 
     def _publish(self, topic, payload, qos=0, retain=False):
         self._last_publish = self._mqtt.publish(topic, payload, qos, retain)
+        self.messages_published += 1
         return self._last_publish
 
     def publish_birth(self):
@@ -368,7 +377,6 @@ class MqttSpbEntity:
 
         logger.info("%s - Published BIRTH message" % (self._entity_domain))
 
-        self.is_birth_published = True
 
     def publish_death(self) -> bool:
 
@@ -381,7 +389,7 @@ class MqttSpbEntity:
             topic = "spBv1.0/" + self.spb_group_name + "/STATE/" + self._spb_eon_name
             self._publish(topic, "OFFLINE".encode("utf-8"), 0, True)  # Set message
         else:  # Normal node
-            payload = getNodeDeathPayload()
+            payload = getNodeDeathPayload(self._bdseq)
             payload_bytes = bytearray(payload.SerializeToString())
             if self._spb_eon_device_name is None:  # EoN
                 topic = "spBv1.0/" + self.spb_group_name + "/NDEATH/" + self._spb_eon_name
@@ -421,7 +429,6 @@ class MqttSpbEntity:
                 topic = "spBv1.0/" + self.spb_group_name + "/DDATA/" + self._spb_eon_name + "/" + self._spb_eon_device_name
             self._loopback_topic = topic
             self._publish(topic, payload_bytes)
-
             logger.info("%s - Published DATA message %s" % (self._entity_domain, topic))
             return True
 
@@ -443,6 +450,8 @@ class MqttSpbEntity:
         self._mqtt.on_message = self._mqtt_on_message
         self._mqtt.on_publish = self._mqtt_on_publish
 
+        self._bdseq = self._bdseq + 1
+
         if user != "":
             self._mqtt.username_pw_set(user, password)
 
@@ -451,13 +460,15 @@ class MqttSpbEntity:
             topic = "spBv1.0/" + self.spb_group_name + "/STATE/" + self._spb_eon_name
             self._mqtt.will_set(topic, "OFFLINE".encode("utf-8"), 0, True)  # Set message
         else:  # Normal node
-            payload = getNodeDeathPayload()
+            payload = getNodeDeathPayload(self._bdseq)
             payload_bytes = bytearray(payload.SerializeToString())
             if self._spb_eon_device_name is None:  # EoN
                 topic = "spBv1.0/" + self.spb_group_name + "/NDEATH/" + self._spb_eon_name
             else:
                 topic = "spBv1.0/" + self.spb_group_name + "/DDEATH/" + self._spb_eon_name + "/" + self._spb_eon_device_name
             self._mqtt.will_set(topic, payload_bytes, 0, True)  # Set message
+
+
 
         # MQTT Connect
         logger.info("%s - Trying to connect MQTT server %s:%d" % (self._entity_domain, host, port))
@@ -483,8 +494,6 @@ class MqttSpbEntity:
         logger.info("%s - Disconnecting from MQTT server" % (self._entity_domain))
 
         if self._mqtt is not None:
-            self.publish_death()
-
             if self._last_publish.mid != self._last_published_mid:
                 self._last_publish.wait_for_publish()
 
@@ -560,6 +569,8 @@ class MqttSpbEntity:
         # Parse the received ProtoBUF data ------------------------------------------------
         payload = MqttSpbPayload().parse_payload(msg.payload)
 
+        logger.warning(f'payload: {payload}')
+
         # Add the timestamp when the message was received
         payload['timestamp_rx'] = msg_ts_rx
 
@@ -590,11 +601,15 @@ class MqttSpbEntity:
                             "%s - Unrecognized CMD: %s - CMD will be ignored" % (self._entity_domain, item['name']))
                         removed.append(item['name'])
 
-                    # Check if the datatypes match, otherwise ignore the command
-                    elif not isinstance(item['value'], type(self.commands.get_value(item['name']))):
-                        logger.warning("%s - Incorrect CMD datatype: %s - CMD will be ignored" % (
-                            self._entity_domain, item['name']))
-                        removed.append(item['name'])
+                    # # Check if the datatypes match, otherwise ignore the command
+                    # elif not isinstance(item['value'], type(self.commands.get_value(item['name']))):
+                    #     logger.warning(f"item: {item}")
+                    #     logger.warning(f"cmds: {self.commands}")
+                    #     logger.warning(f"type:{item['value']}")
+                    #     logger.warning(self.commands.get_value(item['name']))
+                    #     logger.warning("%s - Incorrect CMD datatype: %s update: %s current:%s - CMD will be ignored" % (
+                    #         self._entity_domain, item['name'], item['value'], type(self.commands.get_value(item['name']))))
+                    #     removed.append(item['name'])
 
                     # Include the right command in the new list
                     else:
